@@ -23,11 +23,13 @@ textarea{resize:none}
 .btn-gray{background:#9ca3af}.btn-gray:hover{background:#6b7280}
 .btn-yellow{background:#f59e0b}.btn-yellow:hover{background:#d97706}
 .btn-red{background:#ef4444}.btn-red:hover{background:#dc2626}
+.btn-teal{background:#0d9488;color:#fff}.btn-teal:hover{background:#0f766e}
 .btn-outline{background:#fff;border:1px solid #d1d5db;color:#6b7280;padding:6px 12px;border-radius:6px;font-size:.82rem;cursor:pointer;font-weight:500}
 .btn-outline:hover{background:#f9fafb}
 .btn-sm{padding:4px 10px;font-size:.75rem;border-radius:5px;border:none;cursor:pointer;font-weight:500}
 .btn-sm-blue{background:#eff6ff;color:#2563eb}.btn-sm-blue:hover{background:#dbeafe}
 .btn-sm-green{background:#f0fdf4;color:#16a34a}.btn-sm-green:hover{background:#dcfce7}
+.btn-sm-teal{background:#f0fdfa;color:#0d9488}.btn-sm-teal:hover{background:#ccfbf1}
 .btn-sm-red{background:none;color:#f87171}.btn-sm-red:hover{color:#ef4444}
 .btn-sm-yellow{background:#fef3c7;color:#b45309}.btn-sm-yellow:hover{background:#fde68a}
 .meeting-item{border:1px solid #e5e7eb;border-radius:10px;padding:14px;background:#fff;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
@@ -52,130 +54,175 @@ tr:last-child{border-bottom:none}
 .back-btn:hover{color:#374151}
 .backup-row{display:flex;gap:8px;margin-bottom:12px}
 .backup-row .btn-outline{flex:1;text-align:center}
+.copy-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1f2937;color:#fff;padding:10px 20px;border-radius:8px;font-size:.85rem;opacity:0;transition:opacity .3s;pointer-events:none;z-index:9999}
+.copy-toast.show{opacity:1}
 </style>
 </head>
 <body>
 <div id="app"></div>
+<div class="copy-toast" id="toast">📋 클립보드에 복사됐습니다!</div>
 <script>
-const STORAGE_KEY = 'meetings_data';
-let meetings = [];
-let uid = Date.now();
-let currentView = 'list';
-let editId = null;
-let detailId = null;
-let formData = null;
-function loadData() {
-  try { meetings = JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch { meetings = []; }
+const STORAGE_KEY='meetings_data';
+let meetings=[];
+let uid=Date.now();
+let currentView='list';
+let editId=null;
+let detailId=null;
+let formData=null;
+
+function loadData(){try{meetings=JSON.parse(localStorage.getItem(STORAGE_KEY))||[];}catch{meetings=[];}}
+function saveData(){localStorage.setItem(STORAGE_KEY,JSON.stringify(meetings));}
+function showToast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg||'📋 클립보드에 복사됐습니다!';
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2500);
 }
-function saveData() { localStorage.setItem(STORAGE_KEY, JSON.stringify(meetings)); }
-function emptyForm() {
-  return { title:'',date:'',startTime:'',endTime:'',location:'',
-    author:'',attendees:'',absentees:'',purpose:'',
+function copyText(text){
+  navigator.clipboard.writeText(text).then(()=>showToast()).catch(()=>{
+    const ta=document.createElement('textarea');
+    ta.value=text; ta.style.position='fixed'; ta.style.opacity='0';
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+    document.body.removeChild(ta); showToast();
+  });
+}
+
+/* 회의록 하나를 이메일용 텍스트로 변환 */
+function meetingToText(m){
+  const lines=[];
+  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  lines.push('【회의록】 '+m.title);
+  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  const timeStr=[m.date,m.startTime?m.startTime+'~'+m.endTime:''].filter(Boolean).join(' ');
+  if(timeStr) lines.push('📅 일시: '+timeStr);
+  if(m.location) lines.push('📍 장소: '+m.location);
+  if(m.author) lines.push('✍️  작성자: '+m.author);
+  if(m.attendees) lines.push('👥 참석자: '+m.attendees);
+  if(m.absentees) lines.push('🚫 불참자: '+m.absentees);
+  if(m.purpose){lines.push(''); lines.push('■ 회의 목적'); lines.push(m.purpose);}
+  const filledAg=m.agendas.filter(a=>a.topic||a.discussion||a.decision);
+  if(filledAg.length){
+    lines.push(''); lines.push('■ 안건 및 논의 내용');
+    filledAg.forEach((a,i)=>{
+      lines.push('');
+      lines.push('['+(i+1)+'] '+(a.topic||'(제목 없음)'));
+      if(a.discussion) lines.push('  논의: '+a.discussion);
+      if(a.decision) lines.push('  결정: '+a.decision);
+    });
+  }
+  const filledAc=m.actions.filter(a=>a.task);
+  if(filledAc.length){
+    lines.push(''); lines.push('■ 액션 아이템');
+    filledAc.forEach(a=>{
+      let row='  ['+a.status+'] ';
+      if(a.assignee) row+=a.assignee+' - ';
+      row+=a.task;
+      if(a.due) row+=' (기한: '+a.due+')';
+      lines.push(row);
+    });
+  }
+  if(m.nextDate||m.nextAgenda||m.nextLocation){
+    lines.push(''); lines.push('■ 다음 회의');
+    if(m.nextDate) lines.push('  일시: '+m.nextDate+(m.nextLocation?' / '+m.nextLocation:''));
+    if(m.nextAgenda) lines.push('  안건: '+m.nextAgenda);
+  }
+  if(m.notes){lines.push(''); lines.push('■ 기타 / 특이사항'); lines.push(m.notes);}
+  lines.push(''); lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  return lines.join('\n');
+}
+
+function emptyForm(){
+  return{title:'',date:'',startTime:'',endTime:'',location:'',author:'',attendees:'',absentees:'',purpose:'',
     agendas:[{id:uid++,topic:'',discussion:'',decision:''}],
     actions:[{id:uid++,assignee:'',task:'',due:'',status:'미완료'}],
-    nextDate:'',nextLocation:'',nextAgenda:'',notes:'' };
+    nextDate:'',nextLocation:'',nextAgenda:'',notes:''};
 }
-function el(tag, attrs, ...children) {
-  const e = document.createElement(tag);
-  for (const [k,v] of Object.entries(attrs||{})) {
-    if (k==='onClick') e.addEventListener('click',v);
-    else if (k==='onChange') e.addEventListener('change',v);
-    else if (k==='onInput') e.addEventListener('input',v);
-    else if (k==='className') e.className=v;
-    else if (k==='style'&&typeof v==='string') e.style.cssText=v;
+function el(tag,attrs,...children){
+  const e=document.createElement(tag);
+  for(const [k,v] of Object.entries(attrs||{})){
+    if(k==='onClick') e.addEventListener('click',v);
+    else if(k==='onChange') e.addEventListener('change',v);
+    else if(k==='onInput') e.addEventListener('input',v);
+    else if(k==='className') e.className=v;
+    else if(k==='style'&&typeof v==='string') e.style.cssText=v;
     else e.setAttribute(k,v);
   }
-  for (const c of children) {
-    if (c==null) continue;
-    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
-  }
+  for(const c of children){if(c==null)continue;e.appendChild(typeof c==='string'?document.createTextNode(c):c);}
   return e;
 }
 function mkInput(value,onInput,placeholder='',type='text'){
   const i=document.createElement('input');
-  i.type=type; i.value=value||''; i.placeholder=placeholder;
-  i.addEventListener('input',e=>onInput(e.target.value));
-  return i;
+  i.type=type;i.value=value||'';i.placeholder=placeholder;
+  i.addEventListener('input',e=>onInput(e.target.value));return i;
 }
 function mkSelect(value,options,onChange){
   const s=document.createElement('select');
-  options.forEach(o=>{
-    const op=document.createElement('option');
-    op.value=o; op.textContent=o;
-    if(o===value) op.selected=true;
-    s.appendChild(op);
-  });
-  s.addEventListener('change',e=>onChange(e.target.value));
-  return s;
+  options.forEach(o=>{const op=document.createElement('option');op.value=o;op.textContent=o;if(o===value)op.selected=true;s.appendChild(op);});
+  s.addEventListener('change',e=>onChange(e.target.value));return s;
 }
 function mkTextarea(value,onInput,placeholder='',rows=2){
   const t=document.createElement('textarea');
-  t.rows=rows; t.value=value||''; t.placeholder=placeholder;
-  t.addEventListener('input',e=>onInput(e.target.value));
-  return t;
+  t.rows=rows;t.value=value||'';t.placeholder=placeholder;
+  t.addEventListener('input',e=>onInput(e.target.value));return t;
 }
 function exportBackup(){
   const json=JSON.stringify(meetings,null,2);
   const blob=new Blob([json],{type:'application/json'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
-  a.href=url;
-  a.download='회의록_백업_'+new Date().toISOString().slice(0,10)+'.json';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  a.href=url;a.download='회의록_백업_'+new Date().toISOString().slice(0,10)+'.json';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
 }
 function importBackup(e){
-  const file=e.target.files[0];
-  if(!file) return;
+  const file=e.target.files[0];if(!file)return;
   const reader=new FileReader();
   reader.onload=ev=>{
     try{
       const data=JSON.parse(ev.target.result);
-      if(!Array.isArray(data)) throw new Error();
-      if(!confirm('백업 파일에서 '+data.length+'개의 회의록을 불러옵니다.\n기존 데이터에 추가됩니다. 계속하시겠습니까?')) return;
-      meetings=[...meetings,...data];
-      saveData(); render(); alert('불러오기 완료!');
-    } catch { alert('올바른 백업 파일이 아닙니다.'); }
+      if(!Array.isArray(data))throw new Error();
+      if(!confirm('백업 파일에서 '+data.length+'개의 회의록을 불러옵니다.\n기존 데이터에 추가됩니다. 계속하시겠습니까?'))return;
+      meetings=[...meetings,...data];saveData();render();alert('불러오기 완료!');
+    }catch{alert('올바른 백업 파일이 아닙니다.');}
   };
-  reader.readAsText(file);
-  e.target.value='';
+  reader.readAsText(file);e.target.value='';
 }
-function statusCls(s){ return s==='완료'?'status s-done':s==='진행중'?'status s-ing':'status s-todo'; }
+function statusCls(s){return s==='완료'?'status s-done':s==='진행중'?'status s-ing':'status s-todo';}
+
 function renderList(){
   const wrap=el('div',{className:'wrap'});
   wrap.appendChild(el('div',{className:'row'},
-    el('h1',{},'\ud83d\udccb 회의록 관리'),
+    el('h1',{},'📋 회의록 관리'),
     el('button',{className:'btn btn-blue',onClick:()=>{formData=emptyForm();editId=null;currentView='form';render();}},'+ 새 회의록')
   ));
   const br=el('div',{className:'backup-row'});
   br.appendChild(el('button',{className:'btn-outline',onClick:exportBackup},'⬇️ 백업 저장'));
   const il=el('label',{className:'btn-outline',style:'text-align:center;cursor:pointer'},'⬆️ 백업 불러오기');
   const fi=el('input',{type:'file',accept:'.json',style:'display:none',onChange:importBackup});
-  il.appendChild(fi); br.appendChild(il); wrap.appendChild(br);
+  il.appendChild(fi);br.appendChild(il);wrap.appendChild(br);
   if(meetings.length===0){
     wrap.appendChild(el('div',{className:'empty'},
       el('div',{className:'empty-icon'},'📄'),
       el('p',{},'등록된 회의록이 없습니다.'),
-      el('p',{style:'font-size:.82rem;margin-top:6px'},'위 버튼을 눠러 첫 회의록을 작성해보세요!')
+      el('p',{style:'font-size:.82rem;margin-top:6px'},'위 버튼을 눌러 첫 회의록을 작성해보세요!')
     ));
-  } else {
+  }else{
     meetings.forEach(m=>{
       const item=el('div',{className:'meeting-item'});
       const inner=el('div',{style:'display:flex;justify-content:space-between;align-items:flex-start'});
       const info=el('div',{style:'flex:1;cursor:pointer',onClick:()=>{detailId=m.id;currentView='detail';render();}});
       info.appendChild(el('div',{className:'meeting-title'},m.title));
       info.appendChild(el('div',{className:'meta'},[m.date,m.startTime?m.startTime+'~'+m.endTime:'',m.location?'· '+m.location:''].filter(Boolean).join(' ')));
-      if(m.attendees) info.appendChild(el('div',{className:'meta'},'참석: '+m.attendees));
+      if(m.attendees)info.appendChild(el('div',{className:'meta'},'참석: '+m.attendees));
       const btns=el('div',{style:'display:flex;gap:6px;margin-left:10px'});
+      btns.appendChild(el('button',{className:'btn-sm btn-sm-teal',onClick:(e)=>{e.stopPropagation();copyText(meetingToText(m));}},'📋 복사'));
       btns.appendChild(el('button',{className:'btn-sm btn-sm-yellow',onClick:()=>{formData={...m,agendas:m.agendas.map(a=>({...a})),actions:m.actions.map(a=>({...a}))};editId=m.id;currentView='form';render();}},'수정'));
       btns.appendChild(el('button',{className:'btn-sm btn-sm-red',onClick:()=>{if(confirm('정말 삭제하시겠습니까?')){meetings=meetings.filter(x=>x.id!==m.id);saveData();render();}}},'삭제'));
-      inner.appendChild(info); inner.appendChild(btns); item.appendChild(inner); wrap.appendChild(item);
+      inner.appendChild(info);inner.appendChild(btns);item.appendChild(inner);wrap.appendChild(item);
     });
   }
   return wrap;
 }
+
 function renderForm(){
   const f=formData;
   const wrap=el('div',{className:'wrap'});
@@ -185,25 +232,23 @@ function renderForm(){
       el('h1',{},editId?'회의록 수정':'새 회의록 작성')
     )
   ));
-  const basic=el('div',{className:'card'});
-  basic.appendChild(el('h2',{},'📌 기본 정보'));
+  const basic=el('div',{className:'card'});basic.appendChild(el('h2',{},'📌 기본 정보'));
   const g=el('div',{className:'grid2'});
-  const tw=el('div',{className:'col2'}); tw.appendChild(el('label',{},'회의명 *')); tw.appendChild(mkInput(f.title,v=>f.title=v,'회의명을 입력하세요')); g.appendChild(tw);
-  const dw=el('div',{}); dw.appendChild(el('label',{},'날짜')); dw.appendChild(mkInput(f.date,v=>f.date=v,'','date')); g.appendChild(dw);
+  const tw=el('div',{className:'col2'});tw.appendChild(el('label',{},'회의명 *'));tw.appendChild(mkInput(f.title,v=>f.title=v,'회의명을 입력하세요'));g.appendChild(tw);
+  const dw=el('div',{});dw.appendChild(el('label',{},'날짜'));dw.appendChild(mkInput(f.date,v=>f.date=v,'','date'));g.appendChild(dw);
   const tmw=el('div',{style:'display:flex;gap:4px;align-items:flex-end'});
-  const st=el('div',{style:'flex:1'}); st.appendChild(el('label',{},'시작')); st.appendChild(mkInput(f.startTime,v=>f.startTime=v,'','time')); tmw.appendChild(st);
+  const st=el('div',{style:'flex:1'});st.appendChild(el('label',{},'시작'));st.appendChild(mkInput(f.startTime,v=>f.startTime=v,'','time'));tmw.appendChild(st);
   tmw.appendChild(el('span',{style:'padding-bottom:6px;color:#9ca3af;font-size:.9rem'},'~'));
-  const et=el('div',{style:'flex:1'}); et.appendChild(el('label',{},'종료')); et.appendChild(mkInput(f.endTime,v=>f.endTime=v,'','time')); tmw.appendChild(et);
-  g.appendChild(tmw);
-  [['장소','장소','장소','location'],['작성자','작성자','작성자','author'],['참석자','참석자','홍길동, 김철수','attendees'],['불참자','불참자','이영희','absentees']].forEach(([l,_,p,k])=>{
-    const d=el('div',{}); d.appendChild(el('label',{},l)); d.appendChild(mkInput(f[k],v=>f[k]=v,p)); g.appendChild(d);
+  const et=el('div',{style:'flex:1'});et.appendChild(el('label',{},'종료'));et.appendChild(mkInput(f.endTime,v=>f.endTime=v,'','time'));tmw.appendChild(et);g.appendChild(tmw);
+  [['장소','장소','location'],['작성자','작성자','author'],['참석자','홍길동, 김철수','attendees'],['불참자','이영희','absentees']].forEach(([l,p,k])=>{
+    const d=el('div',{});d.appendChild(el('label',{},l));d.appendChild(mkInput(f[k],v=>f[k]=v,p));g.appendChild(d);
   });
-  const pw=el('div',{className:'col2'}); pw.appendChild(el('label',{},'회의 목적')); pw.appendChild(mkTextarea(f.purpose,v=>f.purpose=v,'이번 회의의 목적을 입력하세요')); g.appendChild(pw);
-  basic.appendChild(g); wrap.appendChild(basic);
+  const pw=el('div',{className:'col2'});pw.appendChild(el('label',{},'회의 목적'));pw.appendChild(mkTextarea(f.purpose,v=>f.purpose=v,'이번 회의의 목적을 입력하세요'));g.appendChild(pw);
+  basic.appendChild(g);wrap.appendChild(basic);
   const agCard=el('div',{className:'card'});
   const agH=el('div',{className:'row',style:'margin-bottom:10px'});
   agH.appendChild(el('h2',{style:'margin:0'},'📝 안건 및 논의 내용'));
-  agH.appendChild(el('button',{className:'btn-sm btn-sm-blue',onClick:()=>{f.agendas.push({id:uid++,topic:'',discussion:'',decision:''});renderAgendas();}},'+ 안건 추가'));
+  agH.appendChild(el('button',{className:'btn-sm btn-sm-blue',onClick:()=>{f.agendas.push({id:uid++,topic:'',discussion:'',decision:''});renderAgendas();}},'+ 안건 추가'));
   agCard.appendChild(agH);
   const agList=el('div',{});
   function renderAgendas(){
@@ -212,19 +257,19 @@ function renderForm(){
       const b=el('div',{className:'agenda-block'});
       const lr=el('div',{style:'display:flex;justify-content:space-between;margin-bottom:4px'});
       lr.appendChild(el('span',{className:'agenda-label'},'안건 '+(i+1)));
-      if(f.agendas.length>1) lr.appendChild(el('button',{className:'btn-sm btn-sm-red',onClick:()=>{f.agendas.splice(i,1);renderAgendas();}},'삭제'));
+      if(f.agendas.length>1)lr.appendChild(el('button',{className:'btn-sm btn-sm-red',onClick:()=>{f.agendas.splice(i,1);renderAgendas();}},'삭제'));
       b.appendChild(lr);
-      const ti=mkInput(a.topic,v=>a.topic=v,'안건 제목'); ti.style.marginBottom='6px'; b.appendChild(ti);
-      const di=mkTextarea(a.discussion,v=>a.discussion=v,'논의 내용'); di.style.marginBottom='6px'; b.appendChild(di);
+      const ti=mkInput(a.topic,v=>a.topic=v,'안건 제목');ti.style.marginBottom='6px';b.appendChild(ti);
+      const di=mkTextarea(a.discussion,v=>a.discussion=v,'논의 내용');di.style.marginBottom='6px';b.appendChild(di);
       b.appendChild(mkTextarea(a.decision,v=>a.decision=v,'결정 사항'));
       agList.appendChild(b);
     });
   }
-  renderAgendas(); agCard.appendChild(agList); wrap.appendChild(agCard);
+  renderAgendas();agCard.appendChild(agList);wrap.appendChild(agCard);
   const acCard=el('div',{className:'card'});
   const acH=el('div',{className:'row',style:'margin-bottom:6px'});
   acH.appendChild(el('h2',{style:'margin:0'},'✅ 액션 아이템'));
-  acH.appendChild(el('button',{className:'btn-sm btn-sm-green',onClick:()=>{f.actions.push({id:uid++,assignee:'',task:'',due:'',status:'미완료'});renderActions();}},'+ 항목 추가'));
+  acH.appendChild(el('button',{className:'btn-sm btn-sm-green',onClick:()=>{f.actions.push({id:uid++,assignee:'',task:'',due:'',status:'미완료'});renderActions();}},'+ 항목 추가'));
   acCard.appendChild(acH);
   const hdr=el('div',{className:'action-grid'});
   ['담당자','할 일','기한','상태',''].forEach(h=>hdr.appendChild(el('span',{style:'font-size:.72rem;color:#9ca3af'},h)));
@@ -238,30 +283,31 @@ function renderForm(){
       row.appendChild(mkInput(a.task,v=>a.task=v,'할 일'));
       row.appendChild(mkInput(a.due,v=>a.due=v,'','date'));
       row.appendChild(mkSelect(a.status,['미완료','진행중','완료'],v=>a.status=v));
-      if(f.actions.length>1) row.appendChild(el('button',{className:'btn-sm btn-sm-red',onClick:()=>{f.actions.splice(i,1);renderActions();}},'✕'));
+      if(f.actions.length>1)row.appendChild(el('button',{className:'btn-sm btn-sm-red',onClick:()=>{f.actions.splice(i,1);renderActions();}},'✕'));
       else row.appendChild(el('span',{},''));
       acList.appendChild(row);
     });
   }
-  renderActions(); acCard.appendChild(acList); wrap.appendChild(acCard);
-  const nx=el('div',{className:'card'}); nx.appendChild(el('h2',{},'📅 다음 회의 & 기타'));
+  renderActions();acCard.appendChild(acList);wrap.appendChild(acCard);
+  const nx=el('div',{className:'card'});nx.appendChild(el('h2',{},'📅 다음 회의 & 기타'));
   const ng=el('div',{className:'grid2'});
-  const nd=el('div',{}); nd.appendChild(el('label',{},'다음 회의 일시')); nd.appendChild(mkInput(f.nextDate,v=>f.nextDate=v,'','date')); ng.appendChild(nd);
-  const nl=el('div',{}); nl.appendChild(el('label',{},'장소')); nl.appendChild(mkInput(f.nextLocation,v=>f.nextLocation=v,'장소')); ng.appendChild(nl);
-  const na=el('div',{className:'col2'}); na.appendChild(el('label',{},'다음 주요 안건')); na.appendChild(mkInput(f.nextAgenda,v=>f.nextAgenda=v,'다음 회의 주요 안건')); ng.appendChild(na);
-  const no=el('div',{className:'col2'}); no.appendChild(el('label',{},'기타 / 특이사항')); no.appendChild(mkTextarea(f.notes,v=>f.notes=v,'기타 메모')); ng.appendChild(no);
-  nx.appendChild(ng); wrap.appendChild(nx);
+  const nd=el('div',{});nd.appendChild(el('label',{},'다음 회의 일시'));nd.appendChild(mkInput(f.nextDate,v=>f.nextDate=v,'','date'));ng.appendChild(nd);
+  const nl=el('div',{});nl.appendChild(el('label',{},'장소'));nl.appendChild(mkInput(f.nextLocation,v=>f.nextLocation=v,'장소'));ng.appendChild(nl);
+  const na=el('div',{className:'col2'});na.appendChild(el('label',{},'다음 주요 안건'));na.appendChild(mkInput(f.nextAgenda,v=>f.nextAgenda=v,'다음 회의 주요 안건'));ng.appendChild(na);
+  const no=el('div',{className:'col2'});no.appendChild(el('label',{},'기타 / 특이사항'));no.appendChild(mkTextarea(f.notes,v=>f.notes=v,'기타 메모'));ng.appendChild(no);
+  nx.appendChild(ng);wrap.appendChild(nx);
   const footer=el('div',{style:'display:flex;gap:8px;justify-content:flex-end;padding-bottom:20px'});
   footer.appendChild(el('button',{className:'btn btn-gray',onClick:()=>{currentView='list';render();}},'취소'));
   footer.appendChild(el('button',{className:'btn btn-blue',onClick:()=>{
     if(!f.title.trim()){alert('회의명을 입력해주세요.');return;}
-    if(editId) meetings=meetings.map(x=>x.id===editId?{...f,id:editId}:x);
+    if(editId)meetings=meetings.map(x=>x.id===editId?{...f,id:editId}:x);
     else meetings.push({...f,id:uid++});
-    saveData(); currentView='list'; render();
+    saveData();currentView='list';render();
   }},editId?'수정 완료':'저장'));
   wrap.appendChild(footer);
   return wrap;
 }
+
 function renderDetail(){
   const m=meetings.find(x=>x.id===detailId);
   if(!m){currentView='list';render();return el('div',{});}
@@ -271,63 +317,64 @@ function renderDetail(){
       el('button',{className:'back-btn',onClick:()=>{currentView='list';render();}},'←'),
       el('h1',{},m.title)
     ),
-    el('div',{style:'display:flex;gap:8px'},
+    el('div',{style:'display:flex;gap:8px;flex-wrap:wrap'},
+      el('button',{className:'btn btn-teal',onClick:()=>copyText(meetingToText(m))},'📋 이메일 복사'),
       el('button',{className:'btn btn-yellow',onClick:()=>{formData={...m,agendas:m.agendas.map(a=>({...a})),actions:m.actions.map(a=>({...a}))};editId=m.id;currentView='form';render();}},'수정'),
       el('button',{className:'btn btn-red',onClick:()=>{if(confirm('정말 삭제하시겠습니까?')){meetings=meetings.filter(x=>x.id!==m.id);saveData();currentView='list';render();}}},'삭제')
     )
   ));
-  const bc=el('div',{className:'card'}); bc.appendChild(el('h2',{},'기본 정보'));
-  const tb=el('table',{}); const tbody=el('tbody',{});
+  const bc=el('div',{className:'card'});bc.appendChild(el('h2',{},'기본 정보'));
+  const tb=el('table',{});const tbody=el('tbody',{});
   const ts=[m.date,m.startTime?m.startTime+'~'+m.endTime:''].filter(Boolean).join(' ');
   [['날짜',ts],['장소',m.location],['작성자',m.author],['참석자',m.attendees],['불참자',m.absentees]].forEach(([k,v])=>{
-    if(!v) return;
-    const tr=el('tr',{}); tr.appendChild(el('td',{},k)); tr.appendChild(el('td',{},v)); tbody.appendChild(tr);
+    if(!v)return;const tr=el('tr',{});tr.appendChild(el('td',{},k));tr.appendChild(el('td',{},v));tbody.appendChild(tr);
   });
-  tb.appendChild(tbody); bc.appendChild(tb);
-  if(m.purpose){const ds=el('div',{className:'detail-section'}); ds.textContent=m.purpose; bc.appendChild(ds);}
+  tb.appendChild(tbody);bc.appendChild(tb);
+  if(m.purpose){const ds=el('div',{className:'detail-section'});ds.textContent=m.purpose;bc.appendChild(ds);}
   wrap.appendChild(bc);
   const filled=m.agendas.filter(a=>a.topic||a.discussion||a.decision);
   if(filled.length){
-    const ac=el('div',{className:'card'}); ac.appendChild(el('h2',{},'안건 및 논의 내용'));
+    const ac=el('div',{className:'card'});ac.appendChild(el('h2',{},'안건 및 논의 내용'));
     filled.forEach((a,i)=>{
       const b=el('div',{className:'agenda-block'});
       b.appendChild(el('div',{className:'agenda-label'},(i+1)+'. '+a.topic));
-      if(a.discussion){const p=el('p',{style:'font-size:.84rem;color:#6b7280;margin-top:4px'}); p.innerHTML='<span style="color:#9ca3af">논의: </span>'+a.discussion; b.appendChild(p);}
-      if(a.decision){const p=el('p',{style:'font-size:.84rem;color:#1f2937;margin-top:4px;font-weight:500'}); p.innerHTML='<span style="color:#22c55e">결정: </span>'+a.decision; b.appendChild(p);}
+      if(a.discussion){const p=el('p',{style:'font-size:.84rem;color:#6b7280;margin-top:4px'});p.innerHTML='<span style="color:#9ca3af">논의: </span>'+a.discussion;b.appendChild(p);}
+      if(a.decision){const p=el('p',{style:'font-size:.84rem;color:#1f2937;margin-top:4px;font-weight:500'});p.innerHTML='<span style="color:#22c55e">결정: </span>'+a.decision;b.appendChild(p);}
       ac.appendChild(b);
     });
     wrap.appendChild(ac);
   }
   const fa=m.actions.filter(a=>a.task);
   if(fa.length){
-    const xc=el('div',{className:'card'}); xc.appendChild(el('h2',{},'액션 아이템'));
+    const xc=el('div',{className:'card'});xc.appendChild(el('h2',{},'액션 아이템'));
     fa.forEach(a=>{
       const row=el('div',{style:'display:flex;gap:8px;align-items:center;margin-bottom:6px;font-size:.84rem'});
       row.appendChild(el('span',{className:statusCls(a.status)},a.status));
       row.appendChild(el('span',{style:'color:#9ca3af'},a.assignee||''));
       row.appendChild(el('span',{style:'flex:1;color:#374151'},a.task));
-      if(a.due) row.appendChild(el('span',{style:'color:#9ca3af'},a.due));
+      if(a.due)row.appendChild(el('span',{style:'color:#9ca3af'},a.due));
       xc.appendChild(row);
     });
     wrap.appendChild(xc);
   }
   if(m.nextDate||m.notes){
     const nc=el('div',{className:'card'});
-    if(m.nextDate){const p=el('p',{style:'font-size:.85rem;margin-bottom:4px'}); p.innerHTML='<span style="color:#9ca3af">다음 회의: </span>'+m.nextDate+' '+(m.nextLocation||''); nc.appendChild(p);}
-    if(m.nextAgenda){const p=el('p',{style:'font-size:.85rem;margin-bottom:4px'}); p.innerHTML='<span style="color:#9ca3af">다음 안건: </span>'+m.nextAgenda; nc.appendChild(p);}
-    if(m.notes){const p=el('p',{style:'font-size:.85rem'}); p.innerHTML='<span style="color:#9ca3af">기타: </span>'+m.notes; nc.appendChild(p);}
+    if(m.nextDate){const p=el('p',{style:'font-size:.85rem;margin-bottom:4px'});p.innerHTML='<span style="color:#9ca3af">다음 회의: </span>'+m.nextDate+' '+(m.nextLocation||'');nc.appendChild(p);}
+    if(m.nextAgenda){const p=el('p',{style:'font-size:.85rem;margin-bottom:4px'});p.innerHTML='<span style="color:#9ca3af">다음 안건: </span>'+m.nextAgenda;nc.appendChild(p);}
+    if(m.notes){const p=el('p',{style:'font-size:.85rem'});p.innerHTML='<span style="color:#9ca3af">기타: </span>'+m.notes;nc.appendChild(p);}
     wrap.appendChild(nc);
   }
   return wrap;
 }
+
 function render(){
   const app=document.getElementById('app');
   app.innerHTML='';
-  if(currentView==='list') app.appendChild(renderList());
-  else if(currentView==='form') app.appendChild(renderForm());
-  else if(currentView==='detail') app.appendChild(renderDetail());
+  if(currentView==='list')app.appendChild(renderList());
+  else if(currentView==='form')app.appendChild(renderForm());
+  else if(currentView==='detail')app.appendChild(renderDetail());
 }
-loadData(); render();
+loadData();render();
 </script>
 </body>
 </html>
