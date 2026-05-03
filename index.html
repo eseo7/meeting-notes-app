@@ -30,7 +30,7 @@ textarea{resize:none}
 .btn-sm-blue{background:#eff6ff;color:#2563eb}.btn-sm-blue:hover{background:#dbeafe}
 .btn-sm-green{background:#f0fdf4;color:#16a34a}.btn-sm-green:hover{background:#dcfce7}
 .btn-sm-teal{background:#f0fdfa;color:#0d9488}.btn-sm-teal:hover{background:#ccfbf1}
-.btn-sm-red{background:none;color:#f87171}.btn-sm-red:hover{color:#ef4444}
+.btn-sm-red{background:none;color:#87171}.btn-sm-red:hover{color:#ef4444}
 .btn-sm-yellow{background:#fef3c7;color:#b45309}.btn-sm-yellow:hover{background:#fde68a}
 .meeting-item{border:1px solid #e5e7eb;border-radius:10px;padding:14px;background:#fff;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
 .meeting-title{font-weight:600;color:#1f2937;cursor:pointer}.meeting-title:hover{color:#2563eb}
@@ -49,206 +49,325 @@ td:first-child{color:#9ca3af;width:70px;padding-right:8px}
 tr{border-bottom:1px solid #f3f4f6}
 tr:last-child{border-bottom:none}
 .detail-section{background:#f9fafb;border-radius:6px;padding:10px;margin-top:8px;font-size:.85rem;color:#374151}
-.action-grid{display:grid;grid-template-columns:70px 1fr 105px 70px 24px;gap:4px;align-items:center;margin-bottom:6px}
+.action-grid{display:grid;grid-template-columns:70px 1fr 105px 70px;gap:4px;align-items:center;margin-bottom:6px}
 .back-btn{background:none;border:none;font-size:1.3rem;cursor:pointer;color:#9ca3af;line-height:1}
 .back-btn:hover{color:#374151}
 .backup-row{display:flex;gap:8px;margin-bottom:12px}
 .backup-row .btn-outline{flex:1;text-align:center}
-.copy-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1f2937;color:#fff;padding:10px 20px;border-radius:8px;font-size:.85rem;opacity:0;transition:opacity .3s;pointer-events:none;z-index:9999}
+.copy-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1f2937;color:#fff;padding:10px 20px;border-radius:8px;font-size:.85rem;opacity:0;transition:opacity .3s}
 .copy-toast.show{opacity:1}
+.db-status{display:inline-flex;align-items:center;gap:5px;font-size:.75rem;padding:3px 8px;border-radius:12px;font-weight:500}
+.db-status.sheets{background:#e8f5e9;color:#2e7d32}
+.db-status.local{background:#fff3e0;color:#e65100}
+.db-status.loading{background:#e3f2fd;color:#1565c0}
+.db-status.error{background:#fce4ec;color:#c62828}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100;align-items:center;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal{background:#fff;border-radius:12px;padding:24px;width:90%;max-width:500px;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+.modal h3{font-size:1rem;font-weight:700;color:#1f2937;margin-bottom:4px}
+.modal p{font-size:.8rem;color:#6b7280;margin-bottom:16px}
+.modal-footer{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+.steps{background:#f9fafb;border-radius:8px;padding:12px;margin-bottom:16px;font-size:.8rem;color:#374151;line-height:1.8}
+.steps ol{padding-left:16px}
+.steps a{color:#2563eb}
 </style>
 </head>
 <body>
 <div id="app"></div>
-<div class="copy-toast" id="toast">📋 클립보드에 복사됐습니다!</div>
-<script>
+<div class="copy-toast" id="toast">📋 클립보드에 복사했습니다!</div>
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal">
+    <h3>⚙️ Google Sheets DB 설정</h3>
+    <p>Apps Script 웹앱 URL을 입력하면 회의록이 Google Sheets에 저장됩니다.</p>
+    <div class="steps">
+      <ol>
+        <li><a href="https://sheets.new" target="_blank">Google Sheets 새 파일 생성</a></li>
+        <li>확장 프로그램 → Apps Script 열기</li>
+        <li>아래 코드 붙여넣기 후 저장</li>
+        <li>배포 → 새 배포 → 웹앱 → 액세스: 모든 사용자 → 배포</li>
+        <li>생성된 URL을 아래에 입력</li>
+      </ol>
+    </div>
+    <label>Apps Script 웹앱 URL</label>
+    <input type="text" id="scriptUrlInput" placeholder="https://script.google.com/macros/s/.../exec" style="margin-bottom:8px"/>
+    <div style="font-size:.75rem;color:#9ca3af">URL 없이 사용하면 브라우저 로컬 저장소만 사용됩니다.</div>
+    <div class="modal-footer">
+      <button class="btn-outline btn-sm" onclick="closeSettings()">취소</button>
+      <button class="btn btn-blue btn-sm" style="padding:6px 16px" onclick="saveSettings()">저장</button>
+    </div>
+  </div>
+</div><script>
 const STORAGE_KEY='meetings_data';
+const SCRIPT_URL_KEY='gs_script_url';
 let meetings=[];
 let uid=Date.now();
 let currentView='list';
 let editId=null;
 let detailId=null;
 let formData=null;
+let dbStatus='local'; // 'local' | 'sheets' | 'loading' | 'error'
 
-function loadData(){try{meetings=JSON.parse(localStorage.getItem(STORAGE_KEY))||[];}catch{meetings=[];}}
-function saveData(){localStorage.setItem(STORAGE_KEY,JSON.stringify(meetings));}
+function getScriptUrl(){return localStorage.getItem(SCRIPT_URL_KEY)||'';}
+function setScriptUrl(url){localStorage.setItem(SCRIPT_URL_KEY,url);}
+
+/* ── DB 상태 표시 ── */
+function renderDbStatus(){
+  const url=getScriptUrl();
+  const labels={'sheets':'🟢 Sheets 연결됨','local':'🟡 로컬 저장','loading':'🔵 동기화 중...','error':'🔴 Sheets 오류'};
+  const el=document.getElementById('dbStatusBadge');
+  if(el){el.className='db-status '+dbStatus;el.textContent=labels[dbStatus]||'로컬 저장';}
+}
+
+/* ── Google Sheets API ── */
+async function sheetsLoad(){
+  const url=getScriptUrl();
+  if(!url)return null;
+  try{
+    dbStatus='loading';renderDbStatus();
+    const r=await fetch(url+'?action=load',{method:'GET'});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const d=await r.json();
+    if(d.error)throw new Error(d.error);
+    dbStatus='sheets';renderDbStatus();
+    return d.data||[];
+  }catch(e){
+    console.error('sheetsLoad error:',e);
+    dbStatus='error';renderDbStatus();
+    return null;
+  }
+}
+
+async function sheetsSave(data){
+  const url=getScriptUrl();
+  if(!url)return false;
+  try{
+    dbStatus='loading';renderDbStatus();
+    const r=await fetch(url,{
+      method:'POST',
+      headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify({action:'save',data:data})
+    });
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const d=await r.json();
+    if(d.error)throw new Error(d.error);
+    dbStatus='sheets';renderDbStatus();
+    return true;
+  }catch(e){
+    console.error('sheetsSave error:',e);
+    dbStatus='error';renderDbStatus();
+    return false;
+  }
+}
+
+/* ── 로컬 캐시 ── */
+function loadLocal(){try{meetings=JSON.parse(localStorage.getItem(STORAGE_KEY))||[];}catch{meetings=[];}}
+function saveLocal(){localStorage.setItem(STORAGE_KEY,JSON.stringify(meetings));}
+
+/* ── 메인 loadData / saveData ── */
+async function loadData(){
+  loadLocal();
+  render();
+  const url=getScriptUrl();
+  if(!url){dbStatus='local';renderDbStatus();return;}
+  const remote=await sheetsLoad();
+  if(remote!==null){
+    meetings=remote;
+    saveLocal();
+    render();
+  }
+}
+
+async function saveData(){
+  saveLocal();
+  await sheetsSave(meetings);
+}
+
+/* ── 설정 모달 ── */
+function openSettings(){
+  document.getElementById('scriptUrlInput').value=getScriptUrl();
+  document.getElementById('settingsModal').classList.add('open');
+}
+function closeSettings(){document.getElementById('settingsModal').classList.remove('open');}
+function saveSettings(){
+  const url=document.getElementById('scriptUrlInput').value.trim();
+  setScriptUrl(url);
+  closeSettings();
+  if(url){loadData();}else{dbStatus='local';renderDbStatus();}
+  showToast('설정이 저장되었습니다!');
+}
 function showToast(msg){
   const t=document.getElementById('toast');
-  t.textContent=msg||'📋 클립보드에 복사됐습니다!';
+  if(msg)t.textContent=msg;
   t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'),2500);
 }
+
 function copyText(text){
   navigator.clipboard.writeText(text).then(()=>showToast()).catch(()=>{
     const ta=document.createElement('textarea');
-    ta.value=text; ta.style.position='fixed'; ta.style.opacity='0';
-    document.body.appendChild(ta); ta.select(); document.execCommand('copy');
-    document.body.removeChild(ta); showToast();
+    ta.value=text;ta.style.position='fixed';ta.style.opacity='0';
+    document.body.appendChild(ta);ta.select();document.execCommand('copy');
+    document.body.removeChild(ta);showToast();
   });
 }
 
-/* 회의록 하나를 이메일용 텍스트로 변환 */
+/* 회의록 하나를 이메일 텍스트로 변환 */
 function meetingToText(m){
   const lines=[];
-  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  lines.push('【회의록】 '+m.title);
-  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  lines.push('──────────────────────');
+  lines.push(' [회의록] '+m.title);
+  lines.push('──────────────────────');
   const timeStr=[m.date,m.startTime?m.startTime+'~'+m.endTime:''].filter(Boolean).join(' ');
-  if(timeStr) lines.push('📅 일시: '+timeStr);
-  if(m.location) lines.push('📍 장소: '+m.location);
-  if(m.author) lines.push('✍️  작성자: '+m.author);
-  if(m.attendees) lines.push('👥 참석자: '+m.attendees);
-  if(m.absentees) lines.push('🚫 불참자: '+m.absentees);
-  if(m.purpose){lines.push(''); lines.push('■ 회의 목적'); lines.push(m.purpose);}
+  if(timeStr)lines.push('📅 일시: '+timeStr);
+  if(m.location)lines.push('📍 장소: '+m.location);
+  if(m.author)lines.push('✍ 작성자: '+m.author);
+  if(m.attendees)lines.push('👥 출석자: '+m.attendees);
+  if(m.absentees)lines.push('🚫 불참자: '+m.absentees);
+  if(m.purpose){lines.push('');lines.push('■ 회의 목적');lines.push(m.purpose);}
   const filledAg=m.agendas.filter(a=>a.topic||a.discussion||a.decision);
   if(filledAg.length){
-    lines.push(''); lines.push('■ 안건 및 논의 내용');
+    lines.push('');lines.push('■ 안건 및 논의 내용');
     filledAg.forEach((a,i)=>{
       lines.push('');
       lines.push('['+(i+1)+'] '+(a.topic||'(제목 없음)'));
-      if(a.discussion) lines.push('  논의: '+a.discussion);
-      if(a.decision) lines.push('  결정: '+a.decision);
+      if(a.discussion)lines.push('  논의: '+a.discussion);
+      if(a.decision)lines.push('  결정: '+a.decision);
     });
   }
   const filledAc=m.actions.filter(a=>a.task);
   if(filledAc.length){
-    lines.push(''); lines.push('■ 액션 아이템');
+    lines.push('');lines.push('■ 향선 아이템');
     filledAc.forEach(a=>{
       let row='  ['+a.status+'] ';
-      if(a.assignee) row+=a.assignee+' - ';
+      if(a.assignee)row+=a.assignee+' - ';
       row+=a.task;
-      if(a.due) row+=' (기한: '+a.due+')';
+      if(a.due)row+=' (기한: '+a.due+')';
       lines.push(row);
     });
   }
   if(m.nextDate||m.nextAgenda||m.nextLocation){
-    lines.push(''); lines.push('■ 다음 회의');
-    if(m.nextDate) lines.push('  일시: '+m.nextDate+(m.nextLocation?' / '+m.nextLocation:''));
-    if(m.nextAgenda) lines.push('  안건: '+m.nextAgenda);
+    lines.push('');lines.push('■ 다음 회의');
+    if(m.nextDate)lines.push('  일시: '+m.nextDate+(m.nextLocation?' / '+m.nextLocation:''));
+    if(m.nextAgenda)lines.push('  안건: '+m.nextAgenda);
   }
-  if(m.notes){lines.push(''); lines.push('■ 기타 / 특이사항'); lines.push(m.notes);}
-  lines.push(''); lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  if(m.notes){lines.push('');lines.push('■ 기타 / 특이사항');lines.push(m.notes);}
   return lines.join('\n');
 }
 
-function emptyForm(){
-  return{title:'',date:'',startTime:'',endTime:'',location:'',author:'',attendees:'',absentees:'',purpose:'',
-    agendas:[{id:uid++,topic:'',discussion:'',decision:''}],
-    actions:[{id:uid++,assignee:'',task:'',due:'',status:'미완료'}],
-    nextDate:'',nextLocation:'',nextAgenda:'',notes:''};
-}
-function el(tag,attrs,...children){
-  const e=document.createElement(tag);
-  for(const [k,v] of Object.entries(attrs||{})){
-    if(k==='onClick') e.addEventListener('click',v);
-    else if(k==='onChange') e.addEventListener('change',v);
-    else if(k==='onInput') e.addEventListener('input',v);
-    else if(k==='className') e.className=v;
-    else if(k==='style'&&typeof v==='string') e.style.cssText=v;
-    else e.setAttribute(k,v);
-  }
-  for(const c of children){if(c==null)continue;e.appendChild(typeof c==='string'?document.createTextNode(c):c);}
-  return e;
-}
-function mkInput(value,onInput,placeholder='',type='text'){
-  const i=document.createElement('input');
-  i.type=type;i.value=value||'';i.placeholder=placeholder;
-  i.addEventListener('input',e=>onInput(e.target.value));return i;
-}
-function mkSelect(value,options,onChange){
-  const s=document.createElement('select');
-  options.forEach(o=>{const op=document.createElement('option');op.value=o;op.textContent=o;if(o===value)op.selected=true;s.appendChild(op);});
-  s.addEventListener('change',e=>onChange(e.target.value));return s;
-}
-function mkTextarea(value,onInput,placeholder='',rows=2){
-  const t=document.createElement('textarea');
-  t.rows=rows;t.value=value||'';t.placeholder=placeholder;
-  t.addEventListener('input',e=>onInput(e.target.value));return t;
-}
 function exportBackup(){
   const json=JSON.stringify(meetings,null,2);
   const blob=new Blob([json],{type:'application/json'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
-  a.href=url;a.download='회의록_백업_'+new Date().toISOString().slice(0,10)+'.json';
+  a.download='회의록_백업_'+new Date().toISOString().slice(0,10)+'.json';
+  a.href=url;
   document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
 }
+
 function importBackup(e){
   const file=e.target.files[0];if(!file)return;
-  const reader=new FileReader();
-  reader.onload=ev=>{
+  const fr=new FileReader();
+  fr.onload=async function(){
     try{
-      const data=JSON.parse(ev.target.result);
+      const data=JSON.parse(fr.target.result);
       if(!Array.isArray(data))throw new Error();
-      if(!confirm('백업 파일에서 '+data.length+'개의 회의록을 불러옵니다.\n기존 데이터에 추가됩니다. 계속하시겠습니까?'))return;
-      meetings=[...meetings,...data];saveData();render();alert('불러오기 완료!');
-    }catch{alert('올바른 백업 파일이 아닙니다.');}
+      if(confirm('백업 파일에서 '+data.length+'개의 회의록을 불러옵니다.\n기존 데이터에 추가됩니다. 계속하시겠습니까?'))return;
+      meetings.push(...data);
+      await saveData();render();alert('불러오기 성공!');
+    }catch{alert('올바른 파일이 아닙니다.');}
   };
-  reader.readAsText(file);e.target.value='';
+  fr.readAsText(file);e.target.value='';
 }
+
 function statusCls(s){return s==='완료'?'status s-done':s==='진행중'?'status s-ing':'status s-todo';}
+
+function emptyForm(){
+  return{id:uid++,title:'',date:new Date().toISOString().slice(0,10),startTime:'',endTime:'',location:'',author:'',attendees:'',absentees:'',purpose:'',agendas:[{id:uid++,topic:'',discussion:'',decision:''}],actions:[{id:uid++,assignee:'',task:'',due:'',status:'미완료'}],nextDate:'',nextAgenda:'',nextLocation:'',notes:''};
+}
+function mkInput(obj,v,key,type='text',placeholder=''){
+  const inp=document.createElement('input');
+  inp.type=type;inp.value=v;inp.placeholder=placeholder||'';
+  inp.onchange=e=>{obj[key]=e.target.value;};
+  if(type==='time')inp.style.width='auto';
+  return inp;
+}
+function mkTextarea(obj,v,key,placeholder=''){
+  const ta=document.createElement('textarea');
+  ta.rows=2;ta.value=v;ta.placeholder=placeholder||'';
+  ta.oninput=e=>{obj[key]=e.target.value;};
+  return ta;
+}
+function el(tag,props={},text=''){
+  const e=document.createElement(tag);
+  Object.assign(e,props);
+  if(text)e.textContent=text;
+  return e;
+}
 
 function renderList(){
   const wrap=el('div',{className:'wrap'});
-  wrap.appendChild(el('div',{className:'row'},
-    el('h1',{},'📋 회의록 관리'),
-    el('button',{className:'btn btn-blue',onClick:()=>{formData=emptyForm();editId=null;currentView='form';render();}},'+ 새 회의록')
-  ));
+  const hdr=el('div',{className:'row'});
+  hdr.appendChild(el('h1',{},'📋 회의록 관리'));
+  const hdrRight=el('div',{style:'display:flex;gap:8px;align-items:center'});
+  const badge=el('span',{id:'dbStatusBadge',className:'db-status local'},'🟡 로컬 저장');
+  const settingsBtn=el('button',{className:'btn-outline btn-sm',onclick:openSettings},'⚙️ DB설정');
+  const newBtn=el('button',{className:'btn btn-blue',onclick:()=>{formData=emptyForm();editId=null;currentView='form';render();}},'+ 새 회의록');
+  hdrRight.appendChild(badge);hdrRight.appendChild(settingsBtn);hdrRight.appendChild(newBtn);
+  hdr.appendChild(hdrRight);
+  wrap.appendChild(hdr);
   const br=el('div',{className:'backup-row'});
-  br.appendChild(el('button',{className:'btn-outline',onClick:exportBackup},'⬇️ 백업 저장'));
-  const il=el('label',{className:'btn-outline',style:'text-align:center;cursor:pointer'},'⬆️ 백업 불러오기');
-  const fi=el('input',{type:'file',accept:'.json',style:'display:none',onChange:importBackup});
-  il.appendChild(fi);br.appendChild(il);wrap.appendChild(br);
+  br.appendChild(el('button',{className:'btn-outline',onclick:exportBackup},'⬇️ 백업 저장'));
+  const il=el('label',{className:'btn-outline',style:'text-align:center;cursor:pointer'},'📋 백업 불러오기');
+  il.appendChild(el('input',{type:'file',accept:'.json',style:'display:none',onchange:importBackup}));
+  br.appendChild(il);wrap.appendChild(br);
   if(meetings.length===0){
-    wrap.appendChild(el('div',{className:'empty'},
-      el('div',{className:'empty-icon'},'📄'),
-      el('p',{},'등록된 회의록이 없습니다.'),
-      el('p',{style:'font-size:.82rem;margin-top:6px'},'위 버튼을 눌러 첫 회의록을 작성해보세요!')
-    ));
-  }else{
-    meetings.forEach(m=>{
+    const emp=el('div',{className:'empty'});
+    emp.appendChild(el('div',{className:'empty-icon'},'📝'));
+    emp.appendChild(el('p',{},'등록된 회의록이 없습니다.'));
+    emp.appendChild(el('p',{style:'font-size:.82rem;margin-top:6px'},'위 버튼을 눌러 첫 회의록을 작성해보세요!'));
+    wrap.appendChild(emp);
+  } else {
+    meetings.slice().reverse().forEach(m=>{
       const item=el('div',{className:'meeting-item'});
-      const inner=el('div',{style:'display:flex;justify-content:space-between;align-items:flex-start'});
-      const info=el('div',{style:'flex:1;cursor:pointer',onClick:()=>{detailId=m.id;currentView='detail';render();}});
-      info.appendChild(el('div',{className:'meeting-title'},m.title));
-      info.appendChild(el('div',{className:'meta'},[m.date,m.startTime?m.startTime+'~'+m.endTime:'',m.location?'· '+m.location:''].filter(Boolean).join(' ')));
-      if(m.attendees)info.appendChild(el('div',{className:'meta'},'참석: '+m.attendees));
-      const btns=el('div',{style:'display:flex;gap:6px;margin-left:10px'});
-      btns.appendChild(el('button',{className:'btn-sm btn-sm-teal',onClick:(e)=>{e.stopPropagation();copyText(meetingToText(m));}},'📋 복사'));
-      btns.appendChild(el('button',{className:'btn-sm btn-sm-yellow',onClick:()=>{formData={...m,agendas:m.agendas.map(a=>({...a})),actions:m.actions.map(a=>({...a}))};editId=m.id;currentView='form';render();}},'수정'));
-      btns.appendChild(el('button',{className:'btn-sm btn-sm-red',onClick:()=>{if(confirm('정말 삭제하시겠습니까?')){meetings=meetings.filter(x=>x.id!==m.id);saveData();render();}}},'삭제'));
-      inner.appendChild(info);inner.appendChild(btns);item.appendChild(inner);wrap.appendChild(item);
+      const top=el('div',{style:'display:flex;justify-content:space-between;align-items:flex-start'});
+      const left=el('div',{style:'flex:1;cursor:pointer',onclick:()=>{detailId=m.id;currentView='detail';render();}});
+      left.appendChild(el('div',{className:'meeting-title'},m.title));
+      left.appendChild(el('div',{className:'meta'},[m.date,m.startTime?m.startTime+'~'+m.endTime:'',m.location?'· '+m.location:''].filter(Boolean).join(' ')));
+      if(m.attendees)left.appendChild(el('div',{className:'meta'},'참석: '+m.attendees));
+      top.appendChild(left);
+      const btns=el('div',{style:'display:flex;gap:4px;margin-left:8px;flex-shrink:0'});
+      btns.appendChild(el('button',{className:'btn-sm btn-sm-teal',onclick:()=>copyText(meetingToText(m))},'📋 복사'));
+      btns.appendChild(el('button',{className:'btn-sm btn-sm-blue',onclick:()=>{formData=JSON.parse(JSON.stringify(m));editId=m.id;currentView='form';render();}},'수정'));
+      btns.appendChild(el('button',{className:'btn-sm btn-sm-red',onclick:async()=>{if(!confirm('삭제하시겠습니까?'))return;meetings=meetings.filter(x=>x.id!==m.id);await saveData();render();}},'삭제'));
+      top.appendChild(btns);item.appendChild(top);wrap.appendChild(item);
     });
   }
   return wrap;
 }
-
 function renderForm(){
   const f=formData;
   const wrap=el('div',{className:'wrap'});
-  wrap.appendChild(el('div',{className:'row'},
-    el('div',{style:'display:flex;align-items:center;gap:8px'},
-      el('button',{className:'back-btn',onClick:()=>{currentView='list';render();}},'←'),
-      el('h1',{},editId?'회의록 수정':'새 회의록 작성')
-    )
-  ));
-  const basic=el('div',{className:'card'});basic.appendChild(el('h2',{},'📌 기본 정보'));
+  const backRow=el('div',{style:'display:flex;align-items:center;gap:8px;margin-bottom:12px'});
+  backRow.appendChild(el('button',{className:'back-btn',onclick:()=>{currentView='list';render();}},'←'));
+  backRow.appendChild(el('h1',{},editId?'회의록 수정':'새 회의록 작성'));
+  wrap.appendChild(backRow);
+  const basic=el('div',{className:'card'});basic.appendChild(el('h2',{},'✏ 기본 정보'));
   const g=el('div',{className:'grid2'});
-  const tw=el('div',{className:'col2'});tw.appendChild(el('label',{},'회의명 *'));tw.appendChild(mkInput(f.title,v=>f.title=v,'회의명을 입력하세요'));g.appendChild(tw);
-  const dw=el('div',{});dw.appendChild(el('label',{},'날짜'));dw.appendChild(mkInput(f.date,v=>f.date=v,'','date'));g.appendChild(dw);
+  const tw=el('div',{className:'col2'});tw.appendChild(el('label',{},'회의명 *'));tw.appendChild(mkInput(f,f.title,'title','text','회의명을 입력하세요'));g.appendChild(tw);
+  const dw=el('div',{});dw.appendChild(el('label',{},'날짜'));dw.appendChild(mkInput(f,f.date,'date','date'));g.appendChild(dw);
   const tmw=el('div',{style:'display:flex;gap:4px;align-items:flex-end'});
-  const st=el('div',{style:'flex:1'});st.appendChild(el('label',{},'시작'));st.appendChild(mkInput(f.startTime,v=>f.startTime=v,'','time'));tmw.appendChild(st);
+  const st=el('div',{style:'flex:1'});st.appendChild(el('label',{},'시작'));st.appendChild(mkInput(f,f.startTime,'startTime','','time'));tmw.appendChild(st);
   tmw.appendChild(el('span',{style:'padding-bottom:6px;color:#9ca3af;font-size:.9rem'},'~'));
-  const et=el('div',{style:'flex:1'});et.appendChild(el('label',{},'종료'));et.appendChild(mkInput(f.endTime,v=>f.endTime=v,'','time'));tmw.appendChild(et);g.appendChild(tmw);
-  [['장소','장소','location'],['작성자','작성자','author'],['참석자','홍길동, 김철수','attendees'],['불참자','이영희','absentees']].forEach(([l,p,k])=>{
-    const d=el('div',{});d.appendChild(el('label',{},l));d.appendChild(mkInput(f[k],v=>f[k]=v,p));g.appendChild(d);
+  const et=el('div',{style:'flex:1'});et.appendChild(el('label',{},'종료'));et.appendChild(mkInput(f,f.endTime,'endTime','','time'));tmw.appendChild(et);g.appendChild(tmw);
+  [['장소','location'],['작성자','author'],['출석자,참석','attendees'],['불참자','absentees']].forEach(([l,k])=>{
+    const d=el('div',{});d.appendChild(el('label',{},l));d.appendChild(mkInput(f,f[k],k));g.appendChild(d);
   });
-  const pw=el('div',{className:'col2'});pw.appendChild(el('label',{},'회의 목적'));pw.appendChild(mkTextarea(f.purpose,v=>f.purpose=v,'이번 회의의 목적을 입력하세요'));g.appendChild(pw);
+  const pw=el('div',{className:'col2'});pw.appendChild(el('label',{},'회의 목적'));pw.appendChild(mkTextarea(f,f.purpose,'purpose','이번 회의의 목적을 입력하세요'));g.appendChild(pw);
   basic.appendChild(g);wrap.appendChild(basic);
   const agCard=el('div',{className:'card'});
   const agH=el('div',{className:'row',style:'margin-bottom:10px'});
-  agH.appendChild(el('h2',{style:'margin:0'},'📝 안건 및 논의 내용'));
-  agH.appendChild(el('button',{className:'btn-sm btn-sm-blue',onClick:()=>{f.agendas.push({id:uid++,topic:'',discussion:'',decision:''});renderAgendas();}},'+ 안건 추가'));
+  agH.appendChild(el('h2',{style:'margin:0'},'📋 안건 및 논의 내용'));
+  agH.appendChild(el('button',{className:'btn-sm btn-sm-blue',onclick:()=>{f.agendas.push({id:uid++,topic:'',discussion:'',decision:''});renderAgendas();}},'+ 안건 추가'));
   agCard.appendChild(agH);
   const agList=el('div',{});
   function renderAgendas(){
@@ -257,79 +376,80 @@ function renderForm(){
       const b=el('div',{className:'agenda-block'});
       const lr=el('div',{style:'display:flex;justify-content:space-between;margin-bottom:4px'});
       lr.appendChild(el('span',{className:'agenda-label'},'안건 '+(i+1)));
-      if(f.agendas.length>1)lr.appendChild(el('button',{className:'btn-sm btn-sm-red',onClick:()=>{f.agendas.splice(i,1);renderAgendas();}},'삭제'));
+      if(f.agendas.length>1)lr.appendChild(el('button',{className:'btn-sm btn-sm-red',onclick:()=>{f.agendas.splice(i,1);renderAgendas();}},'삭제'));
       b.appendChild(lr);
-      const ti=mkInput(a.topic,v=>a.topic=v,'안건 제목');ti.style.marginBottom='6px';b.appendChild(ti);
-      const di=mkTextarea(a.discussion,v=>a.discussion=v,'논의 내용');di.style.marginBottom='6px';b.appendChild(di);
-      b.appendChild(mkTextarea(a.decision,v=>a.decision=v,'결정 사항'));
+      const ti=mkInput(a,a.topic,'topic','안건 제목');ti.style.marginBottom='6px';b.appendChild(ti);
+      const di=mkTextarea(a,a.discussion,'discussion','논의 내용');di.style.marginBottom='6px';b.appendChild(di);
+      b.appendChild(mkTextarea(a,a.decision,'decision','결정 사항'));
       agList.appendChild(b);
     });
   }
   renderAgendas();agCard.appendChild(agList);wrap.appendChild(agCard);
   const acCard=el('div',{className:'card'});
-  const acH=el('div',{className:'row',style:'margin-bottom:6px'});
-  acH.appendChild(el('h2',{style:'margin:0'},'✅ 액션 아이템'));
-  acH.appendChild(el('button',{className:'btn-sm btn-sm-green',onClick:()=>{f.actions.push({id:uid++,assignee:'',task:'',due:'',status:'미완료'});renderActions();}},'+ 항목 추가'));
+  const acH=el('div',{className:'row',style:'margin-bottom:10px'});
+  acH.appendChild(el('h2',{style:'margin:0'},'✅ 향선 아이템'));
+  acH.appendChild(el('button',{className:'btn-sm btn-sm-green',onclick:()=>{f.actions.push({id:uid++,assignee:'',task:'',due:'',status:'미완료'});renderActions();}},'+ 항목 추가'));
   acCard.appendChild(acH);
-  const hdr=el('div',{className:'action-grid'});
-  ['담당자','할 일','기한','상태',''].forEach(h=>hdr.appendChild(el('span',{style:'font-size:.72rem;color:#9ca3af'},h)));
-  acCard.appendChild(hdr);
-  const acList=el('div',{});
+  const acList=el('div',{id:'action-grid'});
+  ['담당자','할 일','기한','상태',''].forEach(h=>acList.appendChild(el('span',{style:'font-size:.72rem;color:#9ca3af'},h)));
   function renderActions(){
-    acList.innerHTML='';
-    f.actions.forEach((a,i)=>{
-      const row=el('div',{className:'action-grid'});
-      row.appendChild(mkInput(a.assignee,v=>a.assignee=v,'담당자'));
-      row.appendChild(mkInput(a.task,v=>a.task=v,'할 일'));
-      row.appendChild(mkInput(a.due,v=>a.due=v,'','date'));
-      row.appendChild(mkSelect(a.status,['미완료','진행중','완료'],v=>a.status=v));
-      if(f.actions.length>1)row.appendChild(el('button',{className:'btn-sm btn-sm-red',onClick:()=>{f.actions.splice(i,1);renderActions();}},'✕'));
-      else row.appendChild(el('span',{},''));
-      acList.appendChild(row);
+    while(acList.children.length>5)acList.removeChild(acList.lastChild);
+    f.actions.forEach(a=>{
+      acList.appendChild(mkInput(a,a.assignee,'assignee'));
+      acList.appendChild(mkInput(a,a.task,'task'));
+      acList.appendChild(mkInput(a,a.due,'due','date'));
+      const sel=document.createElement('select');
+      ['미완료','진행중','완료'].forEach(s=>{const o=document.createElement('option');o.value=s;o.textContent=s;if(s===a.status)o.selected=true;sel.appendChild(o);});
+      sel.onchange=e=>{a.status=e.target.value;};
+      acList.appendChild(sel);
+      acList.appendChild(el('button',{className:'btn-sm btn-sm-red',onclick:()=>{f.actions=f.actions.filter(x=>x.id!==a.id);renderActions();}},'✕'));
     });
   }
+  acList.style='display:grid;grid-template-columns:70px 1fr 105px 70px 24px;gap:4px;align-items:center;margin-bottom:6px';
   renderActions();acCard.appendChild(acList);wrap.appendChild(acCard);
-  const nx=el('div',{className:'card'});nx.appendChild(el('h2',{},'📅 다음 회의 & 기타'));
+  const ncCard=el('div',{className:'card'});ncCard.appendChild(el('h2',{},'📅 다음 회의 & 메모'));
   const ng=el('div',{className:'grid2'});
-  const nd=el('div',{});nd.appendChild(el('label',{},'다음 회의 일시'));nd.appendChild(mkInput(f.nextDate,v=>f.nextDate=v,'','date'));ng.appendChild(nd);
-  const nl=el('div',{});nl.appendChild(el('label',{},'장소'));nl.appendChild(mkInput(f.nextLocation,v=>f.nextLocation=v,'장소'));ng.appendChild(nl);
-  const na=el('div',{className:'col2'});na.appendChild(el('label',{},'다음 주요 안건'));na.appendChild(mkInput(f.nextAgenda,v=>f.nextAgenda=v,'다음 회의 주요 안건'));ng.appendChild(na);
-  const no=el('div',{className:'col2'});no.appendChild(el('label',{},'기타 / 특이사항'));no.appendChild(mkTextarea(f.notes,v=>f.notes=v,'기타 메모'));ng.appendChild(no);
-  nx.appendChild(ng);wrap.appendChild(nx);
-  const footer=el('div',{style:'display:flex;gap:8px;justify-content:flex-end;padding-bottom:20px'});
-  footer.appendChild(el('button',{className:'btn btn-gray',onClick:()=>{currentView='list';render();}},'취소'));
-  footer.appendChild(el('button',{className:'btn btn-blue',onClick:()=>{
+  [['다음 회의 일자','nextDate','date'],['다음 회의 장소','nextLocation','text'],['다음 안건','nextAgenda','text']].forEach(([l,k,t])=>{
+    const d=el('div',{});d.appendChild(el('label',{},l));d.appendChild(mkInput(f,f[k],k,t));ng.appendChild(d);
+  });
+  const nw=el('div',{className:'col2'});nw.appendChild(el('label',{},'기타 / 특이사항'));nw.appendChild(mkTextarea(f,f.notes,'notes'));ng.appendChild(nw);
+  ncCard.appendChild(ng);wrap.appendChild(ncCard);
+  const footer=el('div',{style:'display:flex;gap:8px;margin-bottom:24px'});
+  footer.appendChild(el('button',{className:'btn btn-blue',onclick:async()=>{
     if(!f.title.trim()){alert('회의명을 입력해주세요.');return;}
-    if(editId)meetings=meetings.map(x=>x.id===editId?{...f,id:editId}:x);
-    else meetings.push({...f,id:uid++});
-    saveData();currentView='list';render();
-  }},editId?'수정 완료':'저장'));
+    if(editId){const idx=meetings.findIndex(x=>x.id===editId);if(idx>-1)meetings[idx]=f;}
+    else{meetings.push(f);}
+    await saveData();currentView='list';render();
+  }},editId?'수정 완료':'회의록 저장'));
+  footer.appendChild(el('button',{className:'btn btn-gray',onclick:()=>{currentView='list';render();}},'취소'));
   wrap.appendChild(footer);
   return wrap;
 }
-
 function renderDetail(){
   const m=meetings.find(x=>x.id===detailId);
   if(!m){currentView='list';render();return el('div',{});}
   const wrap=el('div',{className:'wrap'});
-  wrap.appendChild(el('div',{className:'row'},
-    el('div',{style:'display:flex;align-items:center;gap:8px'},
-      el('button',{className:'back-btn',onClick:()=>{currentView='list';render();}},'←'),
-      el('h1',{},m.title)
-    ),
-    el('div',{style:'display:flex;gap:8px;flex-wrap:wrap'},
-      el('button',{className:'btn btn-teal',onClick:()=>copyText(meetingToText(m))},'📋 이메일 복사'),
-      el('button',{className:'btn btn-yellow',onClick:()=>{formData={...m,agendas:m.agendas.map(a=>({...a})),actions:m.actions.map(a=>({...a}))};editId=m.id;currentView='form';render();}},'수정'),
-      el('button',{className:'btn btn-red',onClick:()=>{if(confirm('정말 삭제하시겠습니까?')){meetings=meetings.filter(x=>x.id!==m.id);saveData();currentView='list';render();}}},'삭제')
-    )
-  ));
-  const bc=el('div',{className:'card'});bc.appendChild(el('h2',{},'기본 정보'));
-  const tb=el('table',{});const tbody=el('tbody',{});
-  const ts=[m.date,m.startTime?m.startTime+'~'+m.endTime:''].filter(Boolean).join(' ');
-  [['날짜',ts],['장소',m.location],['작성자',m.author],['참석자',m.attendees],['불참자',m.absentees]].forEach(([k,v])=>{
-    if(!v)return;const tr=el('tr',{});tr.appendChild(el('td',{},k));tr.appendChild(el('td',{},v));tbody.appendChild(tr);
+  const backRow=el('div',{style:'display:flex;align-items:center;gap:8px;margin-bottom:12px'});
+  backRow.appendChild(el('button',{className:'back-btn',onclick:()=>{currentView='list';render();}},'←'));
+  backRow.appendChild(el('h1',{},editId?'회의록 수정':'새 회의록 작성'));
+  wrap.appendChild(backRow);
+  const bc=el('div',{className:'card'});
+  const top=el('div',{style:'display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px'});
+  const ti=el('h2',{style:'font-size:1rem;font-weight:700;color:#1f2937;margin:0'},m.title);
+  top.appendChild(ti);
+  const btns=el('div',{style:'display:flex;gap:4px'});
+  btns.appendChild(el('button',{className:'btn-sm btn-sm-teal',onclick:()=>copyText(meetingToText(m))},'📋 복사'));
+  btns.appendChild(el('button',{className:'btn-sm btn-sm-blue',onclick:()=>{formData=JSON.parse(JSON.stringify(m));editId=m.id;currentView='form';render();}},'수정'));
+  btns.appendChild(el('button',{className:'btn-sm btn-sm-red',onclick:async()=>{if(!confirm('삭제하시겠습니까?'))return;meetings=meetings.filter(x=>x.id!==m.id);await saveData();currentView='list';render();}},'삭제'));
+  top.appendChild(btns);bc.appendChild(top);
+  const tab=document.createElement('table');
+  [[m.date,m.startTime?m.startTime+'~'+m.endTime:''],[m.location],['작성자',m.author],['출석자',m.attendees],['불참자',m.absentees]].filter(r=>r[1]).forEach(r=>{
+    const tr=document.createElement('tr');
+    const td1=document.createElement('td');td1.style.color='#9ca3af';td1.style.width='60px';td1.textContent=r[0]||'일시';
+    const td2=document.createElement('td');td2.textContent=r[1];
+    tr.appendChild(td1);tr.appendChild(td2);tab.appendChild(tr);
   });
-  tb.appendChild(tbody);bc.appendChild(tb);
+  bc.appendChild(tab);
   if(m.purpose){const ds=el('div',{className:'detail-section'});ds.textContent=m.purpose;bc.appendChild(ds);}
   wrap.appendChild(bc);
   const filled=m.agendas.filter(a=>a.topic||a.discussion||a.decision);
@@ -346,7 +466,7 @@ function renderDetail(){
   }
   const fa=m.actions.filter(a=>a.task);
   if(fa.length){
-    const xc=el('div',{className:'card'});xc.appendChild(el('h2',{},'액션 아이템'));
+    const xc=el('div',{className:'card'});xc.appendChild(el('h2',{},'향선 아이템'));
     fa.forEach(a=>{
       const row=el('div',{style:'display:flex;gap:8px;align-items:center;margin-bottom:6px;font-size:.84rem'});
       row.appendChild(el('span',{className:statusCls(a.status)},a.status));
@@ -373,7 +493,9 @@ function render(){
   if(currentView==='list')app.appendChild(renderList());
   else if(currentView==='form')app.appendChild(renderForm());
   else if(currentView==='detail')app.appendChild(renderDetail());
+  renderDbStatus();
 }
+
 loadData();render();
 </script>
 </body>
