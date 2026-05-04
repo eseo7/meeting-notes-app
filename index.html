@@ -10,7 +10,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .wrap{max-width:680px;margin:0 auto;padding:16px}
 h1{font-size:1.3rem;font-weight:700;color:#1f2937}
 h2{font-size:.9rem;font-weight:600;color:#374151;margin-bottom:10px}
-.card{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:12px}
+.card{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16pxh;margin-bottom:12px}
 .row{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .col2{grid-column:span 2}
@@ -203,7 +203,7 @@ function meetingToText(m){
   }
   const filledAc=m.actions.filter(a=>a.task);
   if(filledAc.length){
-    lines.push('');lines.push('■ 향선 아이템');
+    lines.push('');lines.push('■ 액션 아이템');
     filledAc.forEach(a=>{
       let row='  ['+a.status+'] ';
       if(a.assignee)row+=a.assignee+' - ';
@@ -353,7 +353,7 @@ function renderForm(){
   renderAgendas();agCard.appendChild(agList);wrap.appendChild(agCard);
   const acCard=el('div',{className:'card'});
   const acH=el('div',{className:'row',style:'margin-bottom:10px'});
-  acH.appendChild(el('h2',{style:'margin:0'},'✅ 향선 아이템'));
+  acH.appendChild(el('h2',{style:'margin:0'},'✅ 액션 아이템'));
   acH.appendChild(el('button',{className:'btn-sm btn-sm-green',onclick:()=>{f.actions.push({id:uid++,assignee:'',task:'',due:'',status:'미완료'});renderActions();}},'+ 항목 추가'));
   acCard.appendChild(acH);
   const acList=el('div',{id:'action-grid'});
@@ -424,15 +424,15 @@ function renderDetail(){
     filled.forEach((a,i)=>{
       const b=el('div',{className:'agenda-block'});
       b.appendChild(el('div',{className:'agenda-label'},(i+1)+'. '+a.topic));
-      if(a.discussion){const p=el('p',{style:'font-size:.84rem;color:#6b7280;margin-top:4px'});p.innerHTML='<span style="color:#9ca3af">논의: </span>'+a.discussion;b.appendChild(p);}
-      if(a.decision){const p=el('p',{style:'font-size:.84rem;color:#1f2937;margin-top:4px;font-weight:500'});p.innerHTML='<span style="color:#22c55e">결정: </span>'+a.decision;b.appendChild(p);}
+      if(a.discussion){const p=el('p',{style:'font-size:.84rem;color:#6b7280;margin-top:4px;white-space:pre-wrap'});p.innerHTML='<span style="color:#9ca3af">논의: </span>'+a.discussion.replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');b.appendChild(p);}
+      if(a.decision){const p=el('p',{style:'font-size:.84rem;color:#1f2937;margin-top:4px;font-weight:500;white-space:pre-wrap'});p.innerHTML='<span style="color:#22c55e">결정: </span>'+a.decision.replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');b.appendChild(p);}
       ac.appendChild(b);
     });
     wrap.appendChild(ac);
   }
   const fa=m.actions.filter(a=>a.task);
   if(fa.length){
-    const xc=el('div',{className:'card'});xc.appendChild(el('h2',{},'향선 아이템'));
+    const xc=el('div',{className:'card'});xc.appendChild(el('h2',{},'액션 아이템'));
     fa.forEach(a=>{
       const row=el('div',{style:'display:flex;gap:8px;align-items:center;margin-bottom:6px;font-size:.84rem'});
       row.appendChild(el('span',{className:statusCls(a.status)},a.status));
