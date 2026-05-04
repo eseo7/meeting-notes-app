@@ -70,9 +70,16 @@ tr:last-child{border-bottom:none}
 .steps{background:#f9fafb;border-radius:8px;padding:12px;margin-bottom:16px;font-size:.8rem;color:#374151;line-height:1.8}
 .steps ol{padding-left:16px}
 .steps a{color:#2563eb}
+
+/* ── 로딩 오버레이 ── */
+#loadingOverlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;align-items:center;justify-content:center;flex-direction:column;gap:12px;}
+#loadingOverlay.show{display:flex;}
+.spinner{width:44px;height:44px;border:4px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+#loadingOverlay p{color:#fff;font-size:.9rem;font-weight:500;margin:0;}
 </style>
 </head>
-<body>
+<body><div id="loadingOverlay"><div class="spinner"></div><p id="loadingMsg">저장 중...</p></div>
 <div id="app"></div>
 <div class="copy-toast" id="toast">📋 클립보드에 복사했습니다!</div>
 <script>
@@ -162,6 +169,14 @@ async function saveData(){
 }
 
 /* ── 설정 모달 ── */
+function showLoading(msg){
+  var ol=document.getElementById('loadingOverlay');
+  document.getElementById('loadingMsg').textContent=msg||'저장 중...';
+  ol.classList.add('show');
+}
+function hideLoading(){
+  document.getElementById('loadingOverlay').classList.remove('show');
+}
 function showToast(msg){
   const t=document.getElementById('toast');
   if(msg)t.textContent=msg;
@@ -304,7 +319,7 @@ function renderList(){
       const btns=el('div',{style:'display:flex;gap:4px;margin-left:8px;flex-shrink:0'});
       btns.appendChild(el('button',{className:'btn-sm btn-sm-teal',onclick:()=>copyText(meetingToText(m))},'📋 복사'));
       btns.appendChild(el('button',{className:'btn-sm btn-sm-blue',onclick:()=>{formData=JSON.parse(JSON.stringify(m));editId=m.id;currentView='form';render();}},'수정'));
-      btns.appendChild(el('button',{className:'btn-sm btn-sm-red',onclick:async()=>{if(!confirm('삭제하시겠습니까?'))return;meetings=meetings.filter(x=>x.id!==m.id);await saveData();render();}},'삭제'));
+      btns.appendChild(el('button',{className:'btn-sm btn-sm-red',onclick:async()=>{if(!confirm('삭제하시겠습니까?'))return;meetings=meetings.filter(x=>x.id!==m.id);showLoading('삭제 중...');await saveData();hideLoading();render();}},'삭제'));
       top.appendChild(btns);item.appendChild(top);wrap.appendChild(item);
     });
   }
@@ -385,7 +400,10 @@ function renderForm(){
     if(!f.title.trim()){alert('회의명을 입력해주세요.');return;}
     if(editId){const idx=meetings.findIndex(x=>x.id===editId);if(idx>-1)meetings[idx]=f;}
     else{meetings.push(f);}
-    await saveData();currentView='list';render();
+    showLoading(editId?'수정 중...':'저장 중...');
+    await saveData();
+    hideLoading();
+    currentView='list';render();
   }},editId?'수정 완료':'회의록 저장'));
   footer.appendChild(el('button',{className:'btn btn-gray',onclick:()=>{currentView='list';render();}},'취소'));
   wrap.appendChild(footer);
@@ -406,7 +424,10 @@ function renderDetail(){
   const btns=el('div',{style:'display:flex;gap:4px'});
   btns.appendChild(el('button',{className:'btn-sm btn-sm-teal',onclick:()=>copyText(meetingToText(m))},'📋 복사'));
   btns.appendChild(el('button',{className:'btn-sm btn-sm-blue',onclick:()=>{formData=JSON.parse(JSON.stringify(m));editId=m.id;currentView='form';render();}},'수정'));
-  btns.appendChild(el('button',{className:'btn-sm btn-sm-red',onclick:async()=>{if(!confirm('삭제하시겠습니까?'))return;meetings=meetings.filter(x=>x.id!==m.id);await saveData();currentView='list';render();}},'삭제'));
+  btns.appendChild(el('button',{className:'btn-sm btn-sm-red',onclick:async()=>{if(!confirm('삭제하시겠습니까?'))return;meetings=meetings.filter(x=>x.id!==m.id);showLoading('삭제 중...');
+    await saveData();
+    hideLoading();
+    currentView='list';render();}},'삭제'));
   top.appendChild(btns);bc.appendChild(top);
   const tab=document.createElement('table');
   [[m.date,m.startTime?m.startTime+'~'+m.endTime:''],[m.location],['작성자',m.author],['출석자',m.attendees],['불참자',m.absentees]].filter(r=>r[1]).forEach(r=>{
